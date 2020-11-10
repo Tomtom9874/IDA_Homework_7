@@ -47,17 +47,47 @@ test.drop_nzv$diabetesMed <- as.factor(test.drop_nzv$diabetesMed)
 test.drop_nzv$age <- ordered(test.drop_nzv$age)
 
 # Displays the number of missing values by column.
-map(train.drop_nzv, ~sum(is.na(.)))
+train.drop_nzv %>% 
+  map(~sum(is.na(.)))
+
+train.transformed %>% 
+  map(~sum(is.na(.)))
+
 high_missing_columns <- c("payer_code", "medical_specialty")
-missing_indices <- which(high_missing_columns %in% colnames(train.drop_nzv))
-missing_indices
-train.transformed <- train.drop_nzv[,-missing_indices]
-test.transformed <- test.drop_nzv[,-missing_indices]
+
+# Drop Columns with too many missing variables.
+train.drop_nzv %>% 
+  select (-high_missing_columns) -> train.transformed
+test.drop_nzv %>% 
+  select (-high_missing_columns) -> test.transformed
 glimpse(train.transformed)
 
 
-ggplot(train.transformed) +
-  geom_histogram(mapping = aes(readmitted, color=readmitted, fill=readmitted), 
+
+# Handle NA
+train.transformed %>% 
+  mutate_at(c("race"), replace_na, "Caucasian") ->
+  train.transformed
+
+test.transformed %>% 
+  mutate_at(c("race"), replace_na, "Caucasian") ->
+  test.transformed
+
+# Fact lump
+test.transformed$readmitted = -1
+both <- rbind(train.transformed, test.transformed)
+both
+
+both %>% 
+  mutate_at("diagnosis", fct_lump_n, 6) %>% 
+  mutate_at("diagnosis", replace_na, "Other") ->
+  both.transformed
+
+train.lumped = both.transformed %>% filter(!is.na(readmitted))
+test.lumped = both.transformed %>% filter(is.na(readmitted))
+
+ggplot(train.lumped) +
+  geom_histogram(mapping = aes(diagnosis, color=readmitted, fill=readmitted), 
                  stat = 'count')
 ################################# Predict ######################################
 formula = readmitted ~ gender + 
@@ -66,11 +96,13 @@ formula = readmitted ~ gender +
   num_lab_procedures + 
   num_procedures + 
   admission_type + 
-  number_emergency
+  number_emergency +
+  diagnosis +
+  race
 
 
 train_control <- trainControl(method = "boot",
-                                 number = 5,
+                                 number = 3,
                                  verboseIter = TRUE)
 
 
@@ -80,25 +112,27 @@ train_control <- trainControl(method = "boot",
 tune_grid.rf <- expand.grid(mtry=2)
 
 train.fit.rf <- train(formula, 
-                      data = train.transformed, 
+                      data = train.lumped, 
                       method = 'rf',
                       tuneLength = 3,
                       trControl = train_control,
                       verbose = TRUE,
                       tuneGrid = tune_grid.rf)
 train.fit.rf
-prediction_matrix <- predict(train.fit.rf, test.transformed, type = "prob")
+prediction_matrix <- predict(train.fit.rf, test.lumped, type = "prob")
 
 ############ Neural Network #############
 
 train.fit.nn <- train(formula,
-                      data = train.transformed,
+                      data = train.lumped,
                       method = 'nnet',
                       tuneLength = 3,
                       verbose = TRUE,
                       trControl = train_control)
 train.fit.nn
-prediction_matrix <- predict(train.fit.nn, test.transformed, type = "prob")
+# Best Accuracy: .5685526
+
+prediction_matrix <- predict(train.fit.nn, test.lumped, type = "prob")
 
 ############ Output #####################
 predictions <- prediction_matrix[, 1]
