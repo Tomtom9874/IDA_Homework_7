@@ -15,6 +15,7 @@ test.drop_nzv <- test[,-nearZeroVar(test)]
 glimpse(train.drop_nzv)
 
 ############# Recast as factors ###################
+##### Train ####
 train.drop_nzv$readmitted <- as.factor(train.drop_nzv$readmitted)
 train.drop_nzv$admission_type <- as.factor(train.drop_nzv$admission_type)
 train.drop_nzv$discharge_disposition <- as.factor(train.drop_nzv$discharge_disposition)
@@ -30,8 +31,7 @@ train.drop_nzv$insulin <- as.factor(train.drop_nzv$insulin)
 train.drop_nzv$diabetesMed <- as.factor(train.drop_nzv$diabetesMed)
 train.drop_nzv$age <- ordered(train.drop_nzv$age)
 
-
-test.drop_nzv$readmitted <- as.factor(test.drop_nzv$readmitted)
+##### Train ####
 test.drop_nzv$admission_type <- as.factor(test.drop_nzv$admission_type)
 test.drop_nzv$discharge_disposition <- as.factor(test.drop_nzv$discharge_disposition)
 test.drop_nzv$admission_source <- as.factor(test.drop_nzv$admission_source)
@@ -62,8 +62,6 @@ test.drop_nzv %>%
   select (-high_missing_columns) -> test.transformed
 glimpse(train.transformed)
 
-
-
 # Handle NA
 train.transformed %>% 
   mutate_at(c("race"), replace_na, "Caucasian") ->
@@ -76,10 +74,9 @@ test.transformed %>%
 # Fact lump
 test.transformed$readmitted = -1
 both <- rbind(train.transformed, test.transformed)
-both
 
 both %>% 
-  mutate_at("diagnosis", fct_lump_n, 6) %>% 
+  mutate_at("diagnosis", fct_lump_min, 1000) %>% 
   mutate_at("diagnosis", replace_na, "Other") ->
   both.transformed
 
@@ -87,8 +84,10 @@ train.lumped = both.transformed %>% filter(!is.na(readmitted))
 test.lumped = both.transformed %>% filter(is.na(readmitted))
 
 ggplot(train.lumped) +
-  geom_histogram(mapping = aes(diagnosis, color=readmitted, fill=readmitted), 
-                 stat = 'count')
+  geom_bar(mapping = aes(diagnosis, fill=readmitted), 
+                 stat = 'count',
+                 col='Black')
+
 ################################# Predict ######################################
 formula = readmitted ~ gender + 
   age + 
@@ -102,13 +101,11 @@ formula = readmitted ~ gender +
 
 
 train_control <- trainControl(method = "boot",
-                                 number = 3,
+                                 number = 25,
                                  verboseIter = TRUE)
 
 
 ############ Random Forest ##############
-
-
 tune_grid.rf <- expand.grid(mtry=2)
 
 train.fit.rf <- train(formula, 
@@ -122,15 +119,18 @@ train.fit.rf
 prediction_matrix <- predict(train.fit.rf, test.lumped, type = "prob")
 
 ############ Neural Network #############
+tune_grid.nn <- expand.grid(decay=c(0.5, 0.1, 0.125, 0.15),
+                            size=c(2,3,4))
 
 train.fit.nn <- train(formula,
                       data = train.lumped,
                       method = 'nnet',
-                      tuneLength = 3,
+                      tuneLength = 4,
                       verbose = TRUE,
-                      trControl = train_control)
+                      trControl = train_control,
+                      tuneGrid = tune_grid.nn)
 train.fit.nn
-# Best Accuracy: .5685526
+# Best Accuracy: 0.5838946
 
 prediction_matrix <- predict(train.fit.nn, test.lumped, type = "prob")
 
