@@ -28,6 +28,7 @@ train.drop_nzv$pioglitazone <- as.factor(train.drop_nzv$pioglitazone)
 train.drop_nzv$rosiglitazone <- as.factor(train.drop_nzv$rosiglitazone)
 train.drop_nzv$insulin <- as.factor(train.drop_nzv$insulin)
 train.drop_nzv$diabetesMed <- as.factor(train.drop_nzv$diabetesMed)
+train.drop_nzv$age <- ordered(train.drop_nzv$age)
 
 
 test.drop_nzv$readmitted <- as.factor(test.drop_nzv$readmitted)
@@ -43,6 +44,7 @@ test.drop_nzv$pioglitazone <- as.factor(test.drop_nzv$pioglitazone)
 test.drop_nzv$rosiglitazone <- as.factor(test.drop_nzv$rosiglitazone)
 test.drop_nzv$insulin <- as.factor(test.drop_nzv$insulin)
 test.drop_nzv$diabetesMed <- as.factor(test.drop_nzv$diabetesMed)
+test.drop_nzv$age <- ordered(test.drop_nzv$age)
 
 # Displays the number of missing values by column.
 map(train.drop_nzv, ~sum(is.na(.)))
@@ -53,24 +55,55 @@ train.transformed <- train.drop_nzv[,-missing_indices]
 test.transformed <- test.drop_nzv[,-missing_indices]
 glimpse(train.transformed)
 
+
+ggplot(train.transformed) +
+  geom_histogram(mapping = aes(readmitted, color=readmitted, fill=readmitted), 
+                 stat = 'count')
 ################################# Predict ######################################
-formula = readmitted ~ gender + age + time_in_hospital + num_lab_procedures + num_procedures
+formula = readmitted ~ gender + 
+  age + 
+  time_in_hospital + 
+  num_lab_procedures + 
+  num_procedures + 
+  admission_type + 
+  number_emergency
+
+
+train_control <- trainControl(method = "boot",
+                                 number = 5,
+                                 verboseIter = TRUE)
 
 
 ############ Random Forest ##############
 
-train_control.rf <- trainControl(method = "boot",
-                                 number = 5,)
 
-train.fit.lm <- train(formula, 
+tune_grid.rf <- expand.grid(mtry=2)
+
+train.fit.rf <- train(formula, 
                       data = train.transformed, 
                       method = 'rf',
-                      tuneLength = 4)
-train.fit.lm
-prediction_matrix <- predict(train.fit.lm, test.transformed, type = "prob")
+                      tuneLength = 3,
+                      trControl = train_control,
+                      verbose = TRUE,
+                      tuneGrid = tune_grid.rf)
+train.fit.rf
+prediction_matrix <- predict(train.fit.rf, test.transformed, type = "prob")
+
+############ Neural Network #############
+
+train.fit.nn <- train(formula,
+                      data = train.transformed,
+                      method = 'nnet',
+                      tuneLength = 3,
+                      verbose = TRUE,
+                      trControl = train_control)
+train.fit.nn
+prediction_matrix <- predict(train.fit.nn, test.transformed, type = "prob")
+
+############ Output #####################
 predictions <- prediction_matrix[, 1]
 predictions
 output <- cbind.data.frame(test$patientID, predictions)
 names(output) = c("patientID","predReadmit")
 output
-write.csv(output, 'Submission1', row.names = FALSE)
+write.csv(output, 'Submission2.csv', row.names = FALSE)
