@@ -78,13 +78,19 @@ both <- rbind(train.transformed, test.transformed)
 both %>% 
   mutate_at("diagnosis", fct_lump_min, 1000) %>% 
   mutate_at("diagnosis", replace_na, "Other") ->
+  both
+
+both %>% 
+  mutate_at("gender", fct_lump_n, 1) %>% 
+  mutate_at("gender", replace_na, "Other") ->
   both.transformed
 
 train.lumped = both.transformed %>% filter(!is.na(readmitted))
 test.lumped = both.transformed %>% filter(is.na(readmitted))
 
+
 ggplot(train.lumped) +
-  geom_bar(mapping = aes(diagnosis, fill=readmitted), 
+  geom_bar(mapping = aes(age, fill='blue'), 
                  stat = 'count',
                  col='Black')
 
@@ -99,23 +105,24 @@ formula = readmitted ~ gender +
   diagnosis +
   race
 
-
-train_control <- trainControl(method = "boot",
-                                 number = 25,
-                                 verboseIter = TRUE)
-
+########### Train Control ###############
+crossValidation <- trainControl(method = "repeatedcv",
+                                number = 5,
+                                repeats = 5,
+                                verboseIter = TRUE)
 
 ############ Random Forest ##############
-tune_grid.rf <- expand.grid(mtry=2)
+tune_grid.rf <- expand.grid(mtry=c(2,3))
 
 train.fit.rf <- train(formula, 
                       data = train.lumped, 
                       method = 'rf',
-                      tuneLength = 3,
-                      trControl = train_control,
+                      trControl = crossValidation,
                       verbose = TRUE,
                       tuneGrid = tune_grid.rf)
 train.fit.rf
+
+# Best Accuracy: 
 prediction_matrix <- predict(train.fit.rf, test.lumped, type = "prob")
 
 ############ Neural Network #############
@@ -125,14 +132,15 @@ tune_grid.nn <- expand.grid(decay=c(0.5, 0.1, 0.125, 0.15),
 train.fit.nn <- train(formula,
                       data = train.lumped,
                       method = 'nnet',
-                      tuneLength = 4,
                       verbose = TRUE,
-                      trControl = train_control,
+                      trControl = crossValidation,
                       tuneGrid = tune_grid.nn)
 train.fit.nn
 # Best Accuracy: 0.5838946
 
 prediction_matrix <- predict(train.fit.nn, test.lumped, type = "prob")
+
+############ SVM ########################
 
 ############ Output #####################
 predictions <- prediction_matrix[, 1]
@@ -140,4 +148,4 @@ predictions
 output <- cbind.data.frame(test$patientID, predictions)
 names(output) = c("patientID","predReadmit")
 output
-write.csv(output, 'Submission2.csv', row.names = FALSE)
+write.csv(output, 'Submission3.csv', row.names = FALSE)
