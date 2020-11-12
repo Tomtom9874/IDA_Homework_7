@@ -16,7 +16,6 @@ glimpse(train.drop_nzv)
 
 ############# Recast as factors ###################
 ##### Train ####
-train.drop_nzv$readmitted <- as.factor(train.drop_nzv$readmitted)
 train.drop_nzv$admission_type <- as.factor(train.drop_nzv$admission_type)
 train.drop_nzv$discharge_disposition <- as.factor(train.drop_nzv$discharge_disposition)
 train.drop_nzv$admission_source <- as.factor(train.drop_nzv$admission_source)
@@ -46,17 +45,18 @@ test.drop_nzv$insulin <- as.factor(test.drop_nzv$insulin)
 test.drop_nzv$diabetesMed <- as.factor(test.drop_nzv$diabetesMed)
 test.drop_nzv$age <- ordered(test.drop_nzv$age)
 
+train.reclassed <- train.drop_nzv
+train.reclassed$readmitted  <- as.factor(ifelse(train.drop_nzv$readmitted == 0, "Not_Readmitted", "Readmitted"))
 # Displays the number of missing values by column.
-train.drop_nzv %>% 
+train.reclassed %>% 
   map(~sum(is.na(.)))
 
-train.transformed %>% 
-  map(~sum(is.na(.)))
+
 
 high_missing_columns <- c("payer_code", "medical_specialty")
 
 # Drop Columns with too many missing variables.
-train.drop_nzv %>% 
+train.reclassed %>% 
   select (-high_missing_columns) -> train.transformed
 test.drop_nzv %>% 
   select (-high_missing_columns) -> test.transformed
@@ -94,22 +94,42 @@ ggplot(train.lumped) +
                  stat = 'count',
                  col='Black')
 
+glimpse(train.lumped)
+
 ################################# Predict ######################################
-formula = readmitted ~ gender + 
-  age + 
-  time_in_hospital + 
-  num_lab_procedures + 
-  num_procedures + 
-  admission_type + 
-  number_emergency +
-  diagnosis +
-  race
+#formula = readmitted ~ gender + 
+#  age + 
+#  time_in_hospital + 
+#  num_lab_procedures + 
+#  num_procedures + 
+#  admission_type + 
+#  number_emergency +
+#  diagnosis +
+#  race
+formula <- readmitted ~ .
 
 ########### Train Control ###############
 crossValidation <- trainControl(method = "repeatedcv",
-                                number = 5,
-                                repeats = 5,
-                                verboseIter = TRUE)
+                                number = 10,
+                                repeats = 1,
+                                verboseIter = TRUE,
+                                summaryFunction=mnLogLoss,
+                                classProbs = TRUE)
+
+############ XGBoost ####################
+
+train.fit.xgb <- train(formula, 
+                      data = train.lumped, 
+                      method = 'xgbTree',
+                      trControl = crossValidation,
+                      verbose = TRUE,
+                      tuneLength = 3,
+                      metric = 'logLoss',
+                      nthreads = 1)
+train.fit.xgb
+
+# Best LogLoss: 0.6337538
+prediction_matrix <- predict(train.fit.xgb, test.lumped, type = "prob")
 
 ############ Random Forest ##############
 tune_grid.rf <- expand.grid(mtry=c(2,3))
@@ -119,15 +139,17 @@ train.fit.rf <- train(formula,
                       method = 'rf',
                       trControl = crossValidation,
                       verbose = TRUE,
-                      tuneGrid = tune_grid.rf)
+                      tuneGrid = tune_grid.rf,
+                      metric = 'logLoss'
+                      )
 train.fit.rf
 
 # Best Accuracy: 
 prediction_matrix <- predict(train.fit.rf, test.lumped, type = "prob")
 
 ############ Neural Network #############
-tune_grid.nn <- expand.grid(decay=c(0.5, 0.1, 0.125, 0.15),
-                            size=c(2,3,4))
+tune_grid.nn <- expand.grid(decay=c(.15, .175),
+                            size=c(4,5,6))
 
 train.fit.nn <- train(formula,
                       data = train.lumped,
@@ -136,7 +158,7 @@ train.fit.nn <- train(formula,
                       trControl = crossValidation,
                       tuneGrid = tune_grid.nn)
 train.fit.nn
-# Best Accuracy: 0.5838946
+# Best Accuracy: 0.6085399
 
 prediction_matrix <- predict(train.fit.nn, test.lumped, type = "prob")
 
@@ -144,8 +166,6 @@ prediction_matrix <- predict(train.fit.nn, test.lumped, type = "prob")
 
 ############ Output #####################
 predictions <- prediction_matrix[, 1]
-predictions
 output <- cbind.data.frame(test$patientID, predictions)
 names(output) = c("patientID","predReadmit")
-output
-write.csv(output, 'Submission3.csv', row.names = FALSE)
+write.csv(output, 'Submission6.csv', row.names = FALSE)
