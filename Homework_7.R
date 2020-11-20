@@ -106,12 +106,21 @@ glimpse(train.lumped)
 #  number_emergency +
 #  diagnosis +
 #  race
+
+formula = readmitted ~ gender + 
+  age + 
+  time_in_hospital + 
+  num_lab_procedures + 
+  num_procedures + 
+  race +
+  diagnosis
+
 formula <- readmitted ~ .
 
 ########### Train Control ###############
 crossValidation <- trainControl(method = "repeatedcv",
                                 number = 10,
-                                repeats = 1,
+                                repeats = 2,
                                 verboseIter = TRUE,
                                 summaryFunction=mnLogLoss,
                                 classProbs = TRUE)
@@ -128,7 +137,7 @@ train.fit.xgb <- train(formula,
                       nthreads = 1)
 train.fit.xgb
 
-# Best LogLoss: 0.6337538
+# Best LogLoss: 0.6682219
 prediction_matrix <- predict(train.fit.xgb, test.lumped, type = "prob")
 
 ############ Random Forest ##############
@@ -144,28 +153,56 @@ train.fit.rf <- train(formula,
                       )
 train.fit.rf
 
-# Best Accuracy: 
+# Best LogLoss: 0.869935
 prediction_matrix <- predict(train.fit.rf, test.lumped, type = "prob")
 
+
+
+
+
+############### GLM ################
+train.fit.glm <- train(formula, 
+                      data = train.lumped, 
+                      method = 'glm',
+                      trControl = crossValidation,
+                      family = 'binomial',
+                      metric = 'logLoss'
+)
+train.fit.glm
+prediction_matrix <- predict(train.fit.glm, test.lumped, type = "prob")
 ############ Neural Network #############
-tune_grid.nn <- expand.grid(decay=c(.15, .175),
-                            size=c(4,5,6))
+tune_grid.nn <- expand.grid(decay=c(.175),
+                            size=c(3, 4))
 
 train.fit.nn <- train(formula,
                       data = train.lumped,
                       method = 'nnet',
                       verbose = TRUE,
                       trControl = crossValidation,
-                      tuneGrid = tune_grid.nn)
+                      tuneControl = tune_grid.nn,
+                      metric = 'logLoss')
 train.fit.nn
-# Best Accuracy: 0.6085399
-
+train.fit.nn$finalModel
+# Best LogLoss: 0.6684635
+# Best Submission LL: 0.77121
 prediction_matrix <- predict(train.fit.nn, test.lumped, type = "prob")
 
 ############ SVM ########################
+
+train.fit.svm <- train(formula,
+                      data = train.lumped,
+                      method = 'svm',
+                      verbose = TRUE,
+                      trControl = crossValidation,
+                      metric = 'logLoss')
+train.fit.svm
+
+# Best LogLoss: 0.6684635
+# Best Submission LL: 0.77121
+prediction_matrix <- predict(train.fit.svm, test.lumped, type = "prob")
 
 ############ Output #####################
 predictions <- prediction_matrix[, 1]
 output <- cbind.data.frame(test$patientID, predictions)
 names(output) = c("patientID","predReadmit")
-write.csv(output, 'Submission6.csv', row.names = FALSE)
+write.csv(output, 'Submission11.csv', row.names = FALSE)
